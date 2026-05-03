@@ -1,0 +1,421 @@
+Build a Telehealth Ops Exception Agent as a Replit demo, but structure it like a real production system.
+
+Product demo concept
+
+Goal: detect stuck telehealth cases, explain why they are stuck, and generate the next action.
+
+Example:
+
+“Patient completed GLP-1 intake 18h ago. BMI eligible. Contraindication question unanswered. Payment authorized. Provider review not started. Recommended action: send missing-info SMS and move to provider queue after completion.”
+
+This is the right demo because Wizlo’s platform sits across intake, EMR, payments, providers, labs, pharmacies, and patient portal workflows.
+
+1. Recommended architecture on Replit
+
+Use this stack:
+
+Frontend: React + Tailwind
+Backend: FastAPI or Express
+Database: Postgres
+AI layer: OpenAI API
+Jobs: scheduled worker / cron-style background task
+Deployment: Replit Autoscale for web app, Reserved VM or Scheduled Deployment for background jobs
+
+Replit Autoscale Deployments are designed for web apps and APIs with variable traffic; they can scale up with usage and scale down when idle. For background workers, Replit’s Reserved VM Deployment supports worker-style apps that do not listen on a web port. Replit also supports Scheduled Deployments for recurring jobs.
+
+Use Replit secrets for:
+
+DATABASE_URL
+OPENAI_API_KEY
+JWT_SECRET
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM_NUMBER
+APP_ENV
+
+Replit creates/uses DATABASE_URL for SQL database connections, and production deployment secrets need to be added in the Publishing pane, not only in the development workspace.
+
+2. Core modules to build
+A. Patient Case Timeline
+
+This is the main data model.
+
+Each patient case should have events like:
+
+INTAKE_STARTED
+INTAKE_SUBMITTED
+PAYMENT_AUTHORIZED
+PAYMENT_FAILED
+PROVIDER_ASSIGNED
+PROVIDER_REVIEW_STARTED
+PROVIDER_APPROVED
+MISSING_INFO_REQUESTED
+RX_SENT_TO_PHARMACY
+PHARMACY_ACCEPTED
+PHARMACY_DELAYED
+LAB_RESULT_RECEIVED
+SUPPORT_TICKET_CREATED
+REFILL_DUE
+CASE_CLOSED
+
+Do not store just one status. Store an event timeline. That makes the product more scalable and auditable.
+
+B. Exception Detection Engine
+
+Start with deterministic rules, not AI.
+
+Example rules:
+
+Intake incomplete > 2 hours → patient reminder
+Provider review pending > 12 hours → provider escalation
+Payment failed → payment recovery workflow
+Pharmacy no update > 24 hours → pharmacy follow-up
+Lab result received but no provider action > 6 hours → clinical review alert
+Refill due in 7 days → refill outreach
+Support ticket open > 8 hours → support escalation
+
+Why deterministic first: it is easier to explain, safer for healthcare ops, and better for demos. AI should summarize and draft actions, not decide everything.
+
+C. AI Case Summary Generator
+
+For every stuck case, generate:
+
+{
+  "summary": "Patient submitted GLP-1 intake 18 hours ago. Payment authorized. Provider review is pending. One contraindication question is unanswered.",
+  "risk_level": "medium",
+  "reason_stuck": "Missing clinical intake answer blocks provider review.",
+  "recommended_action": "Send missing-info reminder to patient.",
+  "draft_message": "Hi Sarah, we’re missing one answer before your provider can review your treatment request. Please complete it here: [link]."
+}
+
+AI should only receive fake/demo data or sanitized structured data.
+
+D. Ops Dashboard
+
+Show columns:
+
+All Cases
+Needs Patient Action
+Needs Provider Action
+Needs Pharmacy Action
+Payment Issues
+Refill Risk
+Escalated
+Resolved
+
+Each card should show:
+
+Patient initials
+Program type: GLP-1 / HRT / Peptides / Hair Loss
+Current state
+Time stuck
+Exception reason
+Urgency score
+Next action
+Button: Generate message
+Button: Mark resolved
+Button: Escalate
+3. Database schema
+
+Use Postgres.
+
+CREATE TABLE patients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name TEXT,
+  last_name TEXT,
+  email TEXT,
+  phone TEXT,
+  state TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE cases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID REFERENCES patients(id),
+  program_type TEXT NOT NULL,
+  current_status TEXT NOT NULL,
+  assigned_provider TEXT,
+  assigned_ops_owner TEXT,
+  priority TEXT DEFAULT 'normal',
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE case_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID REFERENCES cases(id),
+  event_type TEXT NOT NULL,
+  payload JSONB,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE exceptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID REFERENCES cases(id),
+  exception_type TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  recommended_action TEXT,
+  status TEXT DEFAULT 'open',
+  created_at TIMESTAMP DEFAULT now(),
+  resolved_at TIMESTAMP
+);
+
+CREATE TABLE ai_case_summaries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID REFERENCES cases(id),
+  summary TEXT,
+  risk_level TEXT,
+  reason_stuck TEXT,
+  recommended_action TEXT,
+  draft_message TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE actions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID REFERENCES cases(id),
+  action_type TEXT NOT NULL,
+  target TEXT,
+  message TEXT,
+  status TEXT DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT now(),
+  executed_at TIMESTAMP
+);
+
+For the demo, fake patient data is enough.
+
+4. Backend API endpoints
+
+Use FastAPI or Express.
+
+GET    /api/cases
+GET    /api/cases/:id
+GET    /api/exceptions
+POST   /api/cases/:id/analyze
+POST   /api/cases/:id/generate-action
+POST   /api/actions/:id/send
+POST   /api/exceptions/:id/resolve
+POST   /api/mock/seed
+POST   /api/jobs/run-exception-scan
+
+The important one:
+
+POST /api/jobs/run-exception-scan
+
+This scans all active cases and creates exceptions.
+
+5. Exception scan logic
+
+Pseudo-code:
+
+def scan_case(case):
+    events = get_case_events(case.id)
+    latest = get_latest_event_by_type(events)
+
+    exceptions = []
+
+    if case.current_status == "INTAKE_STARTED":
+        if hours_since(latest["INTAKE_STARTED"]) > 2:
+            exceptions.append({
+                "type": "INTAKE_INCOMPLETE",
+                "severity": "medium",
+                "reason": "Patient started intake but has not submitted it after 2 hours.",
+                "recommended_action": "Send intake completion reminder."
+            })
+
+    if case.current_status == "PROVIDER_REVIEW_PENDING":
+        if hours_since(latest["INTAKE_SUBMITTED"]) > 12:
+            exceptions.append({
+                "type": "PROVIDER_REVIEW_DELAY",
+                "severity": "high",
+                "reason": "Provider review has not started within 12 hours of intake submission.",
+                "recommended_action": "Escalate to provider queue."
+            })
+
+    if has_event(events, "PAYMENT_FAILED"):
+        exceptions.append({
+            "type": "PAYMENT_FAILED",
+            "severity": "high",
+            "reason": "Payment failed and case cannot proceed.",
+            "recommended_action": "Trigger payment retry workflow."
+        })
+
+    return exceptions
+6. AI prompt for case summary
+
+Use this as your backend prompt:
+
+You are an operations assistant for a telehealth infrastructure platform.
+
+You are not making clinical decisions.
+You are summarizing workflow status and recommending operational next steps only.
+
+Given the patient case timeline, identify:
+1. Current case state
+2. Why the case appears stuck
+3. Which team owns the next action
+4. Urgency level: low, medium, high
+5. Recommended operational action
+6. A short draft message if outreach is needed
+
+Avoid medical advice. Do not approve or reject treatment. Do not infer diagnosis.
+
+Return valid JSON only.
+
+Input:
+
+{
+  "program_type": "GLP-1",
+  "state": "CA",
+  "current_status": "PROVIDER_REVIEW_PENDING",
+  "events": [
+    {"type": "INTAKE_SUBMITTED", "created_at": "2026-05-02T10:00:00Z"},
+    {"type": "PAYMENT_AUTHORIZED", "created_at": "2026-05-02T10:05:00Z"},
+    {"type": "MISSING_INFO_FLAGGED", "payload": {"field": "contraindication_question"}}
+  ]
+}
+7. Replit build prompt
+
+Give Replit this prompt:
+
+Build a full-stack Telehealth Ops Exception Agent.
+
+Use React + Tailwind for the frontend, FastAPI for the backend, and Postgres for persistence.
+
+The app should help telehealth operations teams detect stuck patient cases and generate next actions.
+
+Core features:
+1. Dashboard with case columns:
+   - All Cases
+   - Needs Patient Action
+   - Needs Provider Action
+   - Needs Pharmacy Action
+   - Payment Issues
+   - Refill Risk
+   - Escalated
+   - Resolved
+
+2. Case card fields:
+   - Patient initials
+   - Program type
+   - Current status
+   - Time stuck
+   - Exception reason
+   - Urgency score
+   - Recommended next action
+
+3. Case detail page:
+   - Patient profile
+   - Case timeline
+   - Events
+   - Open exceptions
+   - AI-generated summary
+   - Draft action messages
+
+4. Backend tables:
+   - patients
+   - cases
+   - case_events
+   - exceptions
+   - ai_case_summaries
+   - actions
+
+5. Backend endpoints:
+   - GET /api/cases
+   - GET /api/cases/:id
+   - GET /api/exceptions
+   - POST /api/mock/seed
+   - POST /api/jobs/run-exception-scan
+   - POST /api/cases/:id/analyze
+   - POST /api/cases/:id/generate-action
+   - POST /api/exceptions/:id/resolve
+
+6. Add deterministic exception rules:
+   - Intake incomplete > 2 hours
+   - Provider review pending > 12 hours
+   - Pharmacy no update > 24 hours
+   - Payment failed
+   - Lab result received but no provider review > 6 hours
+   - Refill due within 7 days
+   - Support ticket open > 8 hours
+
+7. Use OpenAI API only to summarize cases and draft operational messages.
+Do not make clinical decisions.
+Do not provide medical advice.
+Use structured JSON output from the AI.
+
+8. Add seed data for 25 fake patient cases across GLP-1, HRT, TRT, peptides, hair loss, and sexual health.
+
+9. Add a clean executive-style UI suitable for demoing to a telehealth company.
+8. What to demo to Wizlo
+
+Show this flow:
+
+Open dashboard
+Show 25 active cases
+Filter to “Payment Issues”
+Open one stuck GLP-1 case
+Show event timeline
+Click “Analyze case”
+AI explains why it is stuck
+Click “Generate action”
+It drafts patient/provider/pharmacy message
+Mark exception resolved
+Show metrics changing
+
+The demo should end with:
+
+Before: ops team manually checks every case.
+After: agent surfaces stuck cases, explains why, drafts next action, and creates an audit trail.
+9. Metrics to show on dashboard
+
+Add these cards at the top:
+
+Active Cases: 248
+Open Exceptions: 37
+High Severity: 9
+Avg Time Stuck: 14.2h
+Payment Recovery Queue: 11
+Provider SLA Breaches: 6
+Pharmacy Delays: 8
+Refill Risk Cases: 13
+
+This makes the product feel like a real ops system.
+
+10. Scaling path
+
+For MVP:
+
+React + FastAPI + Postgres + OpenAI
+
+For real production:
+
+API service
+Worker service
+Queue
+Postgres
+Redis
+Webhook ingestion
+Audit logs
+Role-based permissions
+Structured event bus
+Observability
+
+Future architecture:
+
+Wizlo systems/webhooks
+        ↓
+Event ingestion API
+        ↓
+Postgres event timeline
+        ↓
+Exception rules engine
+        ↓
+Queue/worker
+        ↓
+AI summarizer + action generator
+        ↓
+Ops dashboard + action audit trail
+
+On Replit, use Autoscale for the web/API service and a separate worker deployment or scheduled deployment for exception scans. Replit’s docs position Autoscale for web apps/APIs, Reserved VM for persistent services/background workers, and Scheduled Deployments for recurring tasks.

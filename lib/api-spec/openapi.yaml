@@ -3,20 +3,32 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Telehealth Ops Exception Agent API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: cases
+    description: Patient case management
+  - name: exceptions
+    description: Exception detection and management
+  - name: actions
+    description: Operational action management
+  - name: jobs
+    description: Background job triggers
+  - name: mock
+    description: Demo seed data
+  - name: metrics
+    description: Dashboard metrics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +36,251 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /cases:
+    get:
+      operationId: listCases
+      tags: [cases]
+      summary: List all cases
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: program_type
+          in: query
+          schema:
+            type: string
+        - name: exception_type
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaseWithDetails"
+
+  /cases/{id}:
+    get:
+      operationId: getCase
+      tags: [cases]
+      summary: Get case by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Case with full details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseDetail"
+        "404":
+          description: Not found
+
+  /cases/{id}/analyze:
+    post:
+      operationId: analyzeCase
+      tags: [cases]
+      summary: Run AI analysis on a case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: AI case summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCaseSummary"
+        "404":
+          description: Not found
+
+  /cases/{id}/generate-action:
+    post:
+      operationId: generateAction
+      tags: [cases]
+      summary: Generate a draft action for a case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateActionRequest"
+      responses:
+        "200":
+          description: Generated action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Action"
+
+  /cases/{id}/events:
+    get:
+      operationId: getCaseEvents
+      tags: [cases]
+      summary: Get timeline events for a case
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaseEvent"
+
+  /exceptions:
+    get:
+      operationId: listExceptions
+      tags: [exceptions]
+      summary: List all exceptions
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            type: string
+        - name: case_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of exceptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Exception"
+
+  /exceptions/{id}/resolve:
+    post:
+      operationId: resolveException
+      tags: [exceptions]
+      summary: Mark an exception as resolved
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resolved exception
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Exception"
+        "404":
+          description: Not found
+
+  /actions/{id}/send:
+    post:
+      operationId: sendAction
+      tags: [actions]
+      summary: Execute a draft action
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Executed action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Action"
+        "404":
+          description: Not found
+
+  /jobs/run-exception-scan:
+    post:
+      operationId: runExceptionScan
+      tags: [jobs]
+      summary: Run the exception detection scan across all active cases
+      responses:
+        "200":
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /mock/seed:
+    post:
+      operationId: seedMockData
+      tags: [mock]
+      summary: Seed demo patient and case data
+      responses:
+        "200":
+          description: Seed result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeedResult"
+
+  /metrics/dashboard:
+    get:
+      operationId: getDashboardMetrics
+      tags: [metrics]
+      summary: Get high-level dashboard metrics
+      responses:
+        "200":
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardMetrics"
+
+  /metrics/exceptions-by-type:
+    get:
+      operationId: getExceptionsByType
+      tags: [metrics]
+      summary: Get exception counts grouped by type
+      responses:
+        "200":
+          description: Exceptions by type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExceptionTypeCount"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +291,306 @@ components:
       required:
         - status
 
+    Patient:
+      type: object
+      properties:
+        id:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        state:
+          type: string
+        created_at:
+          type: string
+      required:
+        - id
+        - first_name
+        - last_name
+        - created_at
+
+    Case:
+      type: object
+      properties:
+        id:
+          type: string
+        patient_id:
+          type: string
+        program_type:
+          type: string
+        current_status:
+          type: string
+        assigned_provider:
+          type: string
+          nullable: true
+        assigned_ops_owner:
+          type: string
+          nullable: true
+        priority:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+      required:
+        - id
+        - patient_id
+        - program_type
+        - current_status
+        - priority
+        - created_at
+        - updated_at
+
+    CaseWithDetails:
+      allOf:
+        - $ref: "#/components/schemas/Case"
+        - type: object
+          properties:
+            patient:
+              $ref: "#/components/schemas/Patient"
+            open_exceptions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Exception"
+            latest_ai_summary:
+              $ref: "#/components/schemas/AiCaseSummary"
+              nullable: true
+            hours_since_last_event:
+              type: number
+              nullable: true
+          required:
+            - patient
+            - open_exceptions
+
+    CaseDetail:
+      allOf:
+        - $ref: "#/components/schemas/CaseWithDetails"
+        - type: object
+          properties:
+            events:
+              type: array
+              items:
+                $ref: "#/components/schemas/CaseEvent"
+            all_exceptions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Exception"
+            actions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Action"
+            ai_summaries:
+              type: array
+              items:
+                $ref: "#/components/schemas/AiCaseSummary"
+          required:
+            - events
+            - all_exceptions
+            - actions
+            - ai_summaries
+
+    CaseEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        case_id:
+          type: string
+        event_type:
+          type: string
+        payload:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+      required:
+        - id
+        - case_id
+        - event_type
+        - created_at
+
+    Exception:
+      type: object
+      properties:
+        id:
+          type: string
+        case_id:
+          type: string
+        exception_type:
+          type: string
+        severity:
+          type: string
+        reason:
+          type: string
+        recommended_action:
+          type: string
+          nullable: true
+        status:
+          type: string
+        created_at:
+          type: string
+        resolved_at:
+          type: string
+          nullable: true
+      required:
+        - id
+        - case_id
+        - exception_type
+        - severity
+        - reason
+        - status
+        - created_at
+
+    AiCaseSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        case_id:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        risk_level:
+          type: string
+          nullable: true
+        reason_stuck:
+          type: string
+          nullable: true
+        recommended_action:
+          type: string
+          nullable: true
+        draft_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+      required:
+        - id
+        - case_id
+        - created_at
+
+    Action:
+      type: object
+      properties:
+        id:
+          type: string
+        case_id:
+          type: string
+        action_type:
+          type: string
+        target:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        status:
+          type: string
+        created_at:
+          type: string
+        executed_at:
+          type: string
+          nullable: true
+      required:
+        - id
+        - case_id
+        - action_type
+        - status
+        - created_at
+
+    GenerateActionRequest:
+      type: object
+      properties:
+        action_type:
+          type: string
+        target:
+          type: string
+          nullable: true
+      required:
+        - action_type
+
+    ScanResult:
+      type: object
+      properties:
+        cases_scanned:
+          type: integer
+        exceptions_created:
+          type: integer
+        exceptions_by_type:
+          type: object
+      required:
+        - cases_scanned
+        - exceptions_created
+        - exceptions_by_type
+
+    SeedResult:
+      type: object
+      properties:
+        patients_created:
+          type: integer
+        cases_created:
+          type: integer
+        events_created:
+          type: integer
+        message:
+          type: string
+      required:
+        - patients_created
+        - cases_created
+        - events_created
+        - message
+
+    DashboardMetrics:
+      type: object
+      properties:
+        active_cases:
+          type: integer
+        open_exceptions:
+          type: integer
+        high_severity:
+          type: integer
+        avg_time_stuck_hours:
+          type: number
+        payment_recovery_queue:
+          type: integer
+        provider_sla_breaches:
+          type: integer
+        pharmacy_delays:
+          type: integer
+        refill_risk_cases:
+          type: integer
+        cases_by_status:
+          type: object
+        cases_by_program:
+          type: object
+      required:
+        - active_cases
+        - open_exceptions
+        - high_severity
+        - avg_time_stuck_hours
+        - payment_recovery_queue
+        - provider_sla_breaches
+        - pharmacy_delays
+        - refill_risk_cases
+        - cases_by_status
+        - cases_by_program
+
+    ExceptionTypeCount:
+      type: object
+      properties:
+        exception_type:
+          type: string
+        count:
+          type: integer
+        severity:
+          type: string
+      required:
+        - exception_type
+        - count
+        - severity
